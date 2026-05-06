@@ -202,6 +202,7 @@ export default function App() {
   const [signerName, setSignerName] = useState("Thupten Wangpo");
   const [signatureMode, setSignatureMode] = useState<SignatureMode>("draw");
   const [typedSignature, setTypedSignature] = useState("");
+  const [drawnSignatureDataUrl, setDrawnSignatureDataUrl] = useState("");
   const [includeDate, setIncludeDate] = useState(true);
   const [hasDrawnSignature, setHasDrawnSignature] = useState(false);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -347,6 +348,9 @@ export default function App() {
     if (signatureCanvasRef.current?.hasPointerCapture(event.pointerId)) {
       signatureCanvasRef.current.releasePointerCapture(event.pointerId);
     }
+    if (hasDrawnSignature && signatureCanvasRef.current) {
+      setDrawnSignatureDataUrl(signatureCanvasRef.current.toDataURL("image/png"));
+    }
     setIsDrawing(false);
   };
 
@@ -357,6 +361,7 @@ export default function App() {
       context.clearRect(0, 0, canvas.width, canvas.height);
     }
     setHasDrawnSignature(false);
+    setDrawnSignatureDataUrl("");
     setSignedHash("");
     setCertificate(null);
   };
@@ -628,7 +633,15 @@ export default function App() {
                     height: `${placement.height * 100}%`,
                   }}
                 >
-                  <span className="signature-preview">{signatureLabel}</span>
+                  {signatureMode === "draw" && drawnSignatureDataUrl ? (
+                    <img
+                      className="signature-image-preview"
+                      src={drawnSignatureDataUrl}
+                      alt="Drawn signature preview"
+                    />
+                  ) : (
+                    <span className="signature-preview">{signatureLabel}</span>
+                  )}
                   <small>{includeDate ? today : "date off"}</small>
                 </div>
               </div>

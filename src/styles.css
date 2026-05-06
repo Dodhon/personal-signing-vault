@@ -354,6 +354,14 @@ input:focus-visible,
   white-space: normal;
 }
 
+.signature-image-preview {
+  display: block;
+  width: 100%;
+  max-height: calc(100% - 18px);
+  object-fit: contain;
+  object-position: left center;
+}
+
 .signature-box small {
   margin-top: 4px;
   color: var(--muted);

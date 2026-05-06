@@ -35,7 +35,7 @@ Objective: build the first usable web app for Personal Signing Vault on `feature
 - Working branch: `feature/signing-vault-mvp`.
 - Merge target: `main`.
 - PR URL: pending.
-- Evidence: `npm run build`, `npm audit --json`, Playwright browser journey against `http://127.0.0.1:5173/`.
+- Evidence: `npm run build`, `npm audit --json`, Playwright typed-signature browser journey against `http://127.0.0.1:5173/`, and follow-up Playwright drawn-signature browser journey verifying visible drawn preview plus `signatureMode: "draw"` certificate export.
 - Browser artifacts: desktop and mobile screenshots reviewed from `/tmp/personal-signing-vault-qa/`.
 
 ## Domains
