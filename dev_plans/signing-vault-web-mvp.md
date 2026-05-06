@@ -29,6 +29,15 @@ Objective: build the first usable web app for Personal Signing Vault on `feature
 - No app scaffold exists yet.
 - Current branch: `feature/signing-vault-mvp`.
 
+## Plan Lifecycle Status
+
+- Status: implemented and pushed.
+- Working branch: `feature/signing-vault-mvp`.
+- Merge target: `main`.
+- PR URL: pending.
+- Evidence: `npm run build`, `npm audit --json`, Playwright browser journey against `http://127.0.0.1:5173/`.
+- Browser artifacts: desktop and mobile screenshots reviewed from `/tmp/personal-signing-vault-qa/`.
+
 ## Domains
 
 Frontend/UI/UX, E2E/browser validation, GitHub branch workflow.
