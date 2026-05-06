@@ -11,6 +11,23 @@ Local-first personal software for signing PDFs and keeping a tamper-evident evid
 - Generate a signing certificate with timestamps, document hashes, and action history.
 - Store signed documents and certificate metadata in a local encrypted vault.
 
+## Run Locally
+
+```bash
+npm install
+npm run dev
+```
+
+Open the local URL printed by Vite.
+
+## Current Prototype
+
+- React + Vite browser app.
+- Local PDF preview with PDF.js.
+- Local PDF export with pdf-lib.
+- SHA-256 evidence hashes through Web Crypto.
+- Sample waiver for testing the signing workflow.
+
 ## Non-Goals
 
 - Multi-party routing.
