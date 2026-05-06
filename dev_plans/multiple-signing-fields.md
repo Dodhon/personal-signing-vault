@@ -36,7 +36,7 @@ Objective: extend Personal Signing Vault from one combined signature placement i
 - Merge target: `main`.
 - PR URL: pending.
 - Merge commit: pending.
-- Evidence: `npm run build`; Browser/IAB reload confirmed updated controls; Playwright journey loaded sample PDF, added text/date fields, drew a signature, dragged a text field, exported the signed PDF, downloaded certificate JSON, verified five fields and 64-character hashes, and logged no browser console/page errors.
+- Evidence: `npm run build`; Browser/IAB reload confirmed updated controls; Playwright journey loaded sample PDF, added text/date fields, drew a signature, dragged a text field, exported the signed PDF, downloaded certificate JSON, verified five fields and 64-character hashes, and logged no browser console/page errors; branch sync proof returned `0 0`.
 
 ## Domains
 
@@ -114,7 +114,7 @@ fieldDefinitions[]
 - V2: Browser/IAB check at `http://127.0.0.1:5173/` after reload confirmed updated controls were visible.
 - V3: Playwright E2E journey loaded sample, added text/date fields, drew signature, dragged a field, exported signed PDF, and downloaded certificate.
 - V4: Certificate JSON contained five fields including `signature`, `date`, `printedName`, and `text`; original/signed hashes were 64 characters; no console/page errors.
-- V5: `git rev-list --left-right --count origin/feature/signing-vault-mvp...feature/signing-vault-mvp` pending until push.
+- V5: `git rev-list --left-right --count origin/feature/signing-vault-mvp...feature/signing-vault-mvp` returned `0 0` after push.
 
 ## Rollback
 
