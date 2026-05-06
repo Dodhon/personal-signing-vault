@@ -11,6 +11,8 @@ import {
   PenLine,
   RotateCcw,
   ShieldCheck,
+  Trash2,
+  Type,
   Upload,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -21,12 +23,22 @@ import pdfWorker from "pdfjs-dist/build/pdf.worker.mjs?url";
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
 type SignatureMode = "draw" | "type";
+type FieldType = "signature" | "date" | "printedName" | "text";
 
 type Placement = {
   x: number;
   y: number;
   width: number;
   height: number;
+};
+
+type SigningField = {
+  id: string;
+  type: FieldType;
+  label: string;
+  value?: string;
+  placement: Placement;
+  pageNumber: number;
 };
 
 type PageMetrics = {
@@ -46,14 +58,48 @@ type Certificate = {
   originalSha256: string;
   signedSha256: string;
   signatureMode: SignatureMode;
-  placement: Placement;
+  fields: Array<{
+    id: string;
+    type: FieldType;
+    label: string;
+    value: string;
+    pageNumber: number;
+    placement: Placement;
+  }>;
 };
 
-const initialPlacement: Placement = {
-  x: 0.16,
-  y: 0.72,
-  width: 0.34,
-  height: 0.095,
+const fieldLabels: Record<FieldType, string> = {
+  signature: "Signature",
+  date: "Date",
+  printedName: "Printed name",
+  text: "Text",
+};
+
+const defaultPlacements: Record<FieldType, Placement> = {
+  signature: {
+    x: 0.16,
+    y: 0.72,
+    width: 0.34,
+    height: 0.095,
+  },
+  date: {
+    x: 0.58,
+    y: 0.76,
+    width: 0.22,
+    height: 0.045,
+  },
+  printedName: {
+    x: 0.16,
+    y: 0.83,
+    width: 0.34,
+    height: 0.045,
+  },
+  text: {
+    x: 0.16,
+    y: 0.64,
+    width: 0.34,
+    height: 0.052,
+  },
 };
 
 const today = new Intl.DateTimeFormat("en-US", {
@@ -64,6 +110,42 @@ const today = new Intl.DateTimeFormat("en-US", {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+
+function offsetPlacement(type: FieldType, index: number): Placement {
+  const base = defaultPlacements[type];
+  const offset = (index % 6) * 0.024;
+  return {
+    ...base,
+    x: clamp(base.x + offset, 0.02, 1 - base.width - 0.02),
+    y: clamp(base.y + offset, 0.02, 1 - base.height - 0.02),
+  };
+}
+
+function createInitialFields(): SigningField[] {
+  return [
+    {
+      id: "field-signature-1",
+      type: "signature",
+      label: fieldLabels.signature,
+      placement: defaultPlacements.signature,
+      pageNumber: 1,
+    },
+    {
+      id: "field-printed-name-1",
+      type: "printedName",
+      label: fieldLabels.printedName,
+      placement: defaultPlacements.printedName,
+      pageNumber: 1,
+    },
+    {
+      id: "field-date-1",
+      type: "date",
+      label: fieldLabels.date,
+      placement: defaultPlacements.date,
+      pageNumber: 1,
+    },
+  ];
 }
 
 function bytesToHex(buffer: ArrayBuffer) {
@@ -98,6 +180,20 @@ function downloadBlob(blob: Blob, filename: string) {
 function safeFilename(filename: string, suffix: string) {
   const base = filename.replace(/\.pdf$/i, "").replace(/[^a-z0-9-_]+/gi, "-");
   return `${base || "document"}-${suffix}`;
+}
+
+function fitFontSize(
+  text: string,
+  font: { widthOfTextAtSize: (value: string, size: number) => number },
+  maxWidth: number,
+  maxSize: number,
+  minSize = 6,
+) {
+  let size = maxSize;
+  while (size > minSize && font.widthOfTextAtSize(text, size) > maxWidth) {
+    size -= 0.5;
+  }
+  return size;
 }
 
 async function createSamplePdf() {
@@ -192,34 +288,56 @@ export default function App() {
   const previewStageRef = useRef<HTMLDivElement>(null);
   const signatureCanvasRef = useRef<HTMLCanvasElement>(null);
   const dragOffsetRef = useRef({ x: 0, y: 0 });
+  const fieldCounterRef = useRef(4);
 
   const [documentName, setDocumentName] = useState("");
   const [documentBytes, setDocumentBytes] = useState<Uint8Array | null>(null);
   const [originalHash, setOriginalHash] = useState("");
   const [signedHash, setSignedHash] = useState("");
   const [pageMetrics, setPageMetrics] = useState<PageMetrics | null>(null);
-  const [placement, setPlacement] = useState(initialPlacement);
+  const [fields, setFields] = useState<SigningField[]>(createInitialFields);
+  const [activeFieldId, setActiveFieldId] = useState("field-signature-1");
   const [signerName, setSignerName] = useState("Thupten Wangpo");
   const [signatureMode, setSignatureMode] = useState<SignatureMode>("draw");
   const [typedSignature, setTypedSignature] = useState("");
   const [drawnSignatureDataUrl, setDrawnSignatureDataUrl] = useState("");
-  const [includeDate, setIncludeDate] = useState(true);
   const [hasDrawnSignature, setHasDrawnSignature] = useState(false);
   const [isDrawing, setIsDrawing] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
+  const [draggedFieldId, setDraggedFieldId] = useState("");
   const [certificate, setCertificate] = useState<Certificate | null>(null);
   const [statusMessage, setStatusMessage] = useState("Load a PDF to begin.");
   const [errorMessage, setErrorMessage] = useState("");
 
-  const canSign =
-    Boolean(documentBytes) &&
-    signerName.trim().length > 0 &&
-    (signatureMode === "type"
-      ? typedSignature.trim().length > 0
-      : hasDrawnSignature);
-
   const signatureLabel =
     signatureMode === "type" ? typedSignature.trim() : signerName.trim();
+
+  const signatureReady =
+    signatureMode === "type"
+      ? typedSignature.trim().length > 0
+      : hasDrawnSignature;
+
+  const activeField = fields.find((field) => field.id === activeFieldId) ?? null;
+
+  const getFieldValue = useCallback(
+    (field: SigningField) => {
+      if (field.type === "signature") return signatureLabel;
+      if (field.type === "printedName") return signerName.trim();
+      if (field.type === "date") return today;
+      return field.value?.trim() ?? "";
+    },
+    [signatureLabel, signerName],
+  );
+
+  const fieldsReady =
+    fields.length > 0 &&
+    fields.every((field) => {
+      if (field.type === "signature") return signatureReady;
+      if (field.type === "text") return getFieldValue(field).length > 0;
+      if (field.type === "printedName") return signerName.trim().length > 0;
+      return true;
+    });
+
+  const canSign = Boolean(documentBytes) && fieldsReady;
 
   const loadPdfBytes = useCallback(async (name: string, bytes: Uint8Array) => {
     setErrorMessage("");
@@ -228,8 +346,10 @@ export default function App() {
     setOriginalHash(await sha256Hex(bytes));
     setSignedHash("");
     setCertificate(null);
-    setPlacement(initialPlacement);
-    setStatusMessage("PDF loaded. Place your signature and export when ready.");
+    setFields(createInitialFields());
+    setActiveFieldId("field-signature-1");
+    fieldCounterRef.current = 4;
+    setStatusMessage("PDF loaded. Place fields and export when ready.");
   }, []);
 
   useEffect(() => {
@@ -366,41 +486,92 @@ export default function App() {
     setCertificate(null);
   };
 
-  const startPlacementDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+  const updateField = (id: string, changes: Partial<SigningField>) => {
+    setFields((current) =>
+      current.map((field) =>
+        field.id === id ? { ...field, ...changes } : field,
+      ),
+    );
+    setSignedHash("");
+    setCertificate(null);
+  };
+
+  const addField = (type: FieldType) => {
+    const id = `field-${type}-${fieldCounterRef.current}`;
+    fieldCounterRef.current += 1;
+    const nextField: SigningField = {
+      id,
+      type,
+      label: fieldLabels[type],
+      value: type === "text" ? "Custom text" : undefined,
+      placement: offsetPlacement(type, fields.length),
+      pageNumber: 1,
+    };
+
+    setFields((current) => [...current, nextField]);
+    setActiveFieldId(id);
+    setSignedHash("");
+    setCertificate(null);
+    setStatusMessage(`${fieldLabels[type]} field added.`);
+  };
+
+  const removeActiveField = () => {
+    if (!activeField) return;
+    const activeIndex = fields.findIndex((field) => field.id === activeField.id);
+    const nextFields = fields.filter((field) => field.id !== activeField.id);
+    setFields(nextFields);
+    setActiveFieldId(nextFields[Math.max(0, activeIndex - 1)]?.id ?? "");
+    setSignedHash("");
+    setCertificate(null);
+  };
+
+  const startFieldDrag = (
+    field: SigningField,
+    event: React.PointerEvent<HTMLDivElement>,
+  ) => {
     if (!previewStageRef.current) return;
     const rect = previewStageRef.current.getBoundingClientRect();
-    const currentX = placement.x * rect.width;
-    const currentY = placement.y * rect.height;
+    const currentX = field.placement.x * rect.width;
+    const currentY = field.placement.y * rect.height;
     dragOffsetRef.current = {
       x: event.clientX - rect.left - currentX,
       y: event.clientY - rect.top - currentY,
     };
     event.currentTarget.setPointerCapture(event.pointerId);
-    setIsDragging(true);
+    setActiveFieldId(field.id);
+    setDraggedFieldId(field.id);
   };
 
-  const updatePlacementFromPointer = (event: React.PointerEvent) => {
-    if (!isDragging || !previewStageRef.current) return;
+  const updateFieldFromPointer = (event: React.PointerEvent) => {
+    if (!draggedFieldId || !previewStageRef.current) return;
     const rect = previewStageRef.current.getBoundingClientRect();
     const nextX =
       (event.clientX - rect.left - dragOffsetRef.current.x) / rect.width;
     const nextY =
       (event.clientY - rect.top - dragOffsetRef.current.y) / rect.height;
 
-    setPlacement((current) => ({
-      ...current,
-      x: clamp(nextX, 0.02, 1 - current.width - 0.02),
-      y: clamp(nextY, 0.02, 1 - current.height - 0.02),
-    }));
+    setFields((current) =>
+      current.map((field) => {
+        if (field.id !== draggedFieldId) return field;
+        return {
+          ...field,
+          placement: {
+            ...field.placement,
+            x: clamp(nextX, 0.02, 1 - field.placement.width - 0.02),
+            y: clamp(nextY, 0.02, 1 - field.placement.height - 0.02),
+          },
+        };
+      }),
+    );
     setSignedHash("");
     setCertificate(null);
   };
 
-  const stopPlacementDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+  const stopFieldDrag = (event: React.PointerEvent<HTMLDivElement>) => {
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
-    setIsDragging(false);
+    setDraggedFieldId("");
   };
 
   const exportSignedPdf = async () => {
@@ -413,64 +584,93 @@ export default function App() {
       const pdfDoc = await PDFDocument.load(documentBytes);
       const page = pdfDoc.getPages()[0];
       const { width: pdfWidth, height: pdfHeight } = page.getSize();
-      const x = placement.x * pdfWidth;
-      const boxWidth = placement.width * pdfWidth;
-      const boxHeight = placement.height * pdfHeight;
-      const y = pdfHeight - placement.y * pdfHeight - boxHeight;
-      const nameY = Math.max(26, y - 14);
 
       const helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
       const helveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
       const italic = await pdfDoc.embedFont(StandardFonts.TimesRomanItalic);
+      const usesDrawnSignature =
+        signatureMode === "draw" &&
+        fields.some((field) => field.type === "signature");
+      const signatureDataUrl =
+        drawnSignatureDataUrl || signatureCanvasRef.current?.toDataURL("image/png");
+      const signatureImage =
+        usesDrawnSignature && signatureDataUrl
+          ? await pdfDoc.embedPng(
+              await fetch(signatureDataUrl).then((response) =>
+                response.arrayBuffer(),
+              ),
+            )
+          : null;
+      const certificateFields: Certificate["fields"] = [];
 
-      if (signatureMode === "draw") {
-        const dataUrl = signatureCanvasRef.current?.toDataURL("image/png");
-        if (!dataUrl) throw new Error("No drawn signature found.");
-        const pngBytes = await fetch(dataUrl).then((response) =>
-          response.arrayBuffer(),
-        );
-        const signatureImage = await pdfDoc.embedPng(pngBytes);
-        page.drawImage(signatureImage, {
-          x,
-          y,
-          width: boxWidth,
-          height: boxHeight,
-        });
-      } else {
-        page.drawText(typedSignature.trim(), {
-          x,
-          y: y + boxHeight * 0.26,
-          size: Math.min(34, boxHeight * 0.52),
-          font: italic,
-          color: rgb(0.04, 0.09, 0.11),
-        });
+      if (usesDrawnSignature && !signatureImage) {
+        throw new Error("No drawn signature found.");
       }
 
-      page.drawText(signerName.trim(), {
-        x,
-        y: nameY,
-        size: 8.5,
-        font: helveticaBold,
-        color: rgb(0.08, 0.12, 0.14),
-      });
+      for (const field of fields) {
+        const x = field.placement.x * pdfWidth;
+        const boxWidth = field.placement.width * pdfWidth;
+        const boxHeight = field.placement.height * pdfHeight;
+        const y = pdfHeight - field.placement.y * pdfHeight - boxHeight;
+        const value = getFieldValue(field);
 
-      if (includeDate) {
-        page.drawText(today, {
-          x: x + boxWidth * 0.58,
-          y: nameY,
-          size: 8.5,
-          font: helvetica,
-          color: rgb(0.12, 0.16, 0.18),
+        if (field.type === "signature") {
+          if (signatureMode === "draw" && signatureImage) {
+            page.drawImage(signatureImage, {
+              x,
+              y,
+              width: boxWidth,
+              height: boxHeight,
+            });
+          } else {
+            const size = fitFontSize(
+              value,
+              italic,
+              boxWidth,
+              Math.min(34, boxHeight * 0.52),
+              8,
+            );
+            page.drawText(value, {
+              x,
+              y: y + Math.max(3, (boxHeight - size) / 2),
+              size,
+              font: italic,
+              color: rgb(0.04, 0.09, 0.11),
+            });
+          }
+        } else {
+          const font = field.type === "printedName" ? helveticaBold : helvetica;
+          const size = fitFontSize(
+            value,
+            font,
+            boxWidth - 4,
+            Math.min(15, boxHeight * 0.54),
+            6,
+          );
+          page.drawText(value, {
+            x: x + 2,
+            y: y + Math.max(2, (boxHeight - size) / 2),
+            size,
+            font,
+            color:
+              field.type === "date"
+                ? rgb(0.12, 0.16, 0.18)
+                : rgb(0.08, 0.12, 0.14),
+          });
+        }
+
+        certificateFields.push({
+          id: field.id,
+          type: field.type,
+          label: field.label,
+          value:
+            field.type === "signature" && signatureMode === "draw"
+              ? "Drawn signature"
+              : value,
+          pageNumber: field.pageNumber,
+          placement: field.placement,
         });
       }
-
-      page.drawText("Signed locally with Personal Signing Vault", {
-        x,
-        y: Math.max(14, nameY - 12),
-        size: 6.8,
-        font: helvetica,
-        color: rgb(0.38, 0.42, 0.46),
-      });
 
       const signedBytes = new Uint8Array(await pdfDoc.save());
       const nextSignedHash = await sha256Hex(signedBytes);
@@ -485,7 +685,7 @@ export default function App() {
         originalSha256: originalHash,
         signedSha256: nextSignedHash,
         signatureMode,
-        placement,
+        fields: certificateFields,
       };
 
       setSignedHash(nextSignedHash);
@@ -516,10 +716,11 @@ export default function App() {
 
   const completionLabel = useMemo(() => {
     if (!documentBytes) return "Import";
-    if (!canSign) return "Place";
+    if (!fields.length) return "Fields";
+    if (!canSign) return "Fill";
     if (!signedHash) return "Evidence";
     return "Complete";
-  }, [canSign, documentBytes, signedHash]);
+  }, [canSign, documentBytes, fields.length, signedHash]);
 
   const workflowSteps: Array<{
     label: string;
@@ -527,9 +728,36 @@ export default function App() {
     done: boolean;
   }> = [
     { label: "Import", Icon: FileInput, done: Boolean(documentBytes) },
-    { label: "Place", Icon: PenLine, done: canSign },
+    { label: "Fields", Icon: PenLine, done: fieldsReady },
     { label: "Evidence", Icon: FileCheck2, done: Boolean(signedHash) },
   ];
+
+  const renderFieldPreview = (field: SigningField) => {
+    const value = getFieldValue(field);
+    if (
+      field.type === "signature" &&
+      signatureMode === "draw" &&
+      drawnSignatureDataUrl
+    ) {
+      return (
+        <img
+          className="signature-image-preview"
+          src={drawnSignatureDataUrl}
+          alt="Drawn signature preview"
+        />
+      );
+    }
+
+    return (
+      <span
+        className={
+          field.type === "signature" ? "signature-preview" : "field-value"
+        }
+      >
+        {value || field.label}
+      </span>
+    );
+  };
 
   return (
     <main className="app-shell">
@@ -608,7 +836,7 @@ export default function App() {
               <div
                 ref={previewStageRef}
                 className="page-stage"
-                onPointerMove={updatePlacementFromPointer}
+                onPointerMove={updateFieldFromPointer}
                 style={
                   pageMetrics
                     ? {
@@ -618,32 +846,30 @@ export default function App() {
                 }
               >
                 <canvas ref={previewCanvasRef} className="pdf-canvas" />
-                <div
-                  className={`signature-box ${isDragging ? "dragging" : ""}`}
-                  role="button"
-                  tabIndex={0}
-                  aria-label="Draggable signature placement"
-                  onPointerDown={startPlacementDrag}
-                  onPointerUp={stopPlacementDrag}
-                  onPointerCancel={stopPlacementDrag}
-                  style={{
-                    left: `${placement.x * 100}%`,
-                    top: `${placement.y * 100}%`,
-                    width: `${placement.width * 100}%`,
-                    height: `${placement.height * 100}%`,
-                  }}
-                >
-                  {signatureMode === "draw" && drawnSignatureDataUrl ? (
-                    <img
-                      className="signature-image-preview"
-                      src={drawnSignatureDataUrl}
-                      alt="Drawn signature preview"
-                    />
-                  ) : (
-                    <span className="signature-preview">{signatureLabel}</span>
-                  )}
-                  <small>{includeDate ? today : "date off"}</small>
-                </div>
+                {fields.map((field) => (
+                  <div
+                    className={`field-box field-${field.type} ${
+                      activeFieldId === field.id ? "selected" : ""
+                    } ${draggedFieldId === field.id ? "dragging" : ""}`}
+                    key={field.id}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`${field.label} field`}
+                    onFocus={() => setActiveFieldId(field.id)}
+                    onPointerDown={(event) => startFieldDrag(field, event)}
+                    onPointerUp={stopFieldDrag}
+                    onPointerCancel={stopFieldDrag}
+                    style={{
+                      left: `${field.placement.x * 100}%`,
+                      top: `${field.placement.y * 100}%`,
+                      width: `${field.placement.width * 100}%`,
+                      height: `${field.placement.height * 100}%`,
+                    }}
+                  >
+                    <small>{field.label}</small>
+                    {renderFieldPreview(field)}
+                  </div>
+                ))}
               </div>
             ) : (
               <div className="empty-document">
@@ -700,13 +926,21 @@ export default function App() {
             <div className="segmented-control" aria-label="Signature mode">
               <button
                 className={signatureMode === "draw" ? "active" : ""}
-                onClick={() => setSignatureMode("draw")}
+                onClick={() => {
+                  setSignatureMode("draw");
+                  setSignedHash("");
+                  setCertificate(null);
+                }}
               >
                 Draw
               </button>
               <button
                 className={signatureMode === "type" ? "active" : ""}
-                onClick={() => setSignatureMode("type")}
+                onClick={() => {
+                  setSignatureMode("type");
+                  setSignedHash("");
+                  setCertificate(null);
+                }}
               >
                 Type
               </button>
@@ -743,22 +977,100 @@ export default function App() {
                 />
               </label>
             )}
+          </section>
 
-            <label className="toggle-row">
-              <input
-                type="checkbox"
-                checked={includeDate}
-                onChange={(event) => {
-                  setIncludeDate(event.target.checked);
-                  setSignedHash("");
-                  setCertificate(null);
-                }}
-              />
-              <span>
+          <section className="inspector-section">
+            <div className="section-heading">
+              <FileCheck2 size={18} />
+              <h2>Fields</h2>
+            </div>
+            <div className="field-add-grid">
+              <button
+                className="secondary-button"
+                aria-label="Add signature field"
+                onClick={() => addField("signature")}
+              >
+                <PenLine size={15} />
+                Signature
+              </button>
+              <button
+                className="secondary-button"
+                aria-label="Add date field"
+                onClick={() => addField("date")}
+              >
                 <Calendar size={15} />
-                Include today&apos;s date
-              </span>
-            </label>
+                Date
+              </button>
+              <button
+                className="secondary-button"
+                aria-label="Add printed name field"
+                onClick={() => addField("printedName")}
+              >
+                <Fingerprint size={15} />
+                Printed name
+              </button>
+              <button
+                className="secondary-button"
+                aria-label="Add text field"
+                onClick={() => addField("text")}
+              >
+                <Type size={15} />
+                Text
+              </button>
+            </div>
+
+            {fields.length ? (
+              <div className="field-list">
+                {fields.map((field) => (
+                  <button
+                    className={activeFieldId === field.id ? "active" : ""}
+                    key={field.id}
+                    aria-label={`Select ${field.label} field`}
+                    onClick={() => setActiveFieldId(field.id)}
+                  >
+                    <span>{field.label}</span>
+                    <small>{fieldLabels[field.type]}</small>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="empty-fields">No fields placed</div>
+            )}
+
+            {activeField ? (
+              <div className="field-editor">
+                <label className="field-label" htmlFor="field-label">
+                  Selected label
+                </label>
+                <input
+                  id="field-label"
+                  value={activeField.label}
+                  onChange={(event) =>
+                    updateField(activeField.id, { label: event.target.value })
+                  }
+                />
+
+                {activeField.type === "text" ? (
+                  <>
+                    <label className="field-label" htmlFor="field-value">
+                      Text value
+                    </label>
+                    <input
+                      id="field-value"
+                      value={activeField.value ?? ""}
+                      onChange={(event) =>
+                        updateField(activeField.id, { value: event.target.value })
+                      }
+                    />
+                  </>
+                ) : null}
+
+                <button className="secondary-button danger full" onClick={removeActiveField}>
+                  <Trash2 size={15} />
+                  Remove selected
+                </button>
+              </div>
+            ) : null}
           </section>
 
           <section className="inspector-section evidence">
@@ -778,6 +1090,10 @@ export default function App() {
               <div>
                 <dt>Timestamp</dt>
                 <dd>{certificate?.signedAt ?? "created on export"}</dd>
+              </div>
+              <div>
+                <dt>Fields</dt>
+                <dd>{certificate?.fields.length ?? fields.length}</dd>
               </div>
             </dl>
             <button

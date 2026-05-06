@@ -24,6 +24,7 @@ Open the local URL printed by Vite.
 
 - React + Vite browser app.
 - Local PDF preview with PDF.js.
+- Multiple draggable field boxes for signature, date, printed name, and custom text.
 - Local PDF export with pdf-lib.
 - SHA-256 evidence hashes through Web Crypto.
 - Sample waiver for testing the signing workflow.
