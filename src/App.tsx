@@ -154,9 +154,14 @@ function bytesToHex(buffer: ArrayBuffer) {
     .join("");
 }
 
+function copyBytesToArrayBuffer(bytes: Uint8Array) {
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  return buffer;
+}
+
 async function sha256Hex(bytes: Uint8Array) {
-  const source = new ArrayBuffer(bytes.byteLength);
-  new Uint8Array(source).set(bytes);
+  const source = copyBytesToArrayBuffer(bytes);
   const digest = await crypto.subtle.digest("SHA-256", source);
   return bytesToHex(digest);
 }
@@ -294,6 +299,7 @@ export default function App() {
   const [documentBytes, setDocumentBytes] = useState<Uint8Array | null>(null);
   const [originalHash, setOriginalHash] = useState("");
   const [signedHash, setSignedHash] = useState("");
+  const [signedPdfBytes, setSignedPdfBytes] = useState<Uint8Array | null>(null);
   const [pageMetrics, setPageMetrics] = useState<PageMetrics | null>(null);
   const [fields, setFields] = useState<SigningField[]>(createInitialFields);
   const [activeFieldId, setActiveFieldId] = useState("field-signature-1");
@@ -338,6 +344,13 @@ export default function App() {
     });
 
   const canSign = Boolean(documentBytes) && fieldsReady;
+  const canExport = canSign && Boolean(pageMetrics);
+
+  const clearEvidence = useCallback(() => {
+    setSignedHash("");
+    setSignedPdfBytes(null);
+    setCertificate(null);
+  }, []);
 
   const loadPdfBytes = useCallback(async (name: string, bytes: Uint8Array) => {
     setErrorMessage("");
@@ -345,6 +358,7 @@ export default function App() {
     setDocumentBytes(bytes);
     setOriginalHash(await sha256Hex(bytes));
     setSignedHash("");
+    setSignedPdfBytes(null);
     setCertificate(null);
     setFields(createInitialFields());
     setActiveFieldId("field-signature-1");
@@ -451,8 +465,7 @@ export default function App() {
     context.moveTo(point.x, point.y);
     setIsDrawing(true);
     setHasDrawnSignature(true);
-    setSignedHash("");
-    setCertificate(null);
+    clearEvidence();
   };
 
   const drawSignature = (event: React.PointerEvent<HTMLCanvasElement>) => {
@@ -482,8 +495,7 @@ export default function App() {
     }
     setHasDrawnSignature(false);
     setDrawnSignatureDataUrl("");
-    setSignedHash("");
-    setCertificate(null);
+    clearEvidence();
   };
 
   const updateField = (id: string, changes: Partial<SigningField>) => {
@@ -492,8 +504,7 @@ export default function App() {
         field.id === id ? { ...field, ...changes } : field,
       ),
     );
-    setSignedHash("");
-    setCertificate(null);
+    clearEvidence();
   };
 
   const addField = (type: FieldType) => {
@@ -510,8 +521,7 @@ export default function App() {
 
     setFields((current) => [...current, nextField]);
     setActiveFieldId(id);
-    setSignedHash("");
-    setCertificate(null);
+    clearEvidence();
     setStatusMessage(`${fieldLabels[type]} field added.`);
   };
 
@@ -521,8 +531,7 @@ export default function App() {
     const nextFields = fields.filter((field) => field.id !== activeField.id);
     setFields(nextFields);
     setActiveFieldId(nextFields[Math.max(0, activeIndex - 1)]?.id ?? "");
-    setSignedHash("");
-    setCertificate(null);
+    clearEvidence();
   };
 
   const startFieldDrag = (
@@ -563,8 +572,7 @@ export default function App() {
         };
       }),
     );
-    setSignedHash("");
-    setCertificate(null);
+    clearEvidence();
   };
 
   const stopFieldDrag = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -575,7 +583,7 @@ export default function App() {
   };
 
   const exportSignedPdf = async () => {
-    if (!documentBytes || !pageMetrics || !canSign) return;
+    if (!documentBytes || !pageMetrics || !canExport) return;
 
     setErrorMessage("");
     setStatusMessage("Signing PDF locally...");
@@ -689,6 +697,7 @@ export default function App() {
       };
 
       setSignedHash(nextSignedHash);
+      setSignedPdfBytes(signedBytes);
       setCertificate(nextCertificate);
       setStatusMessage("Signed PDF and evidence certificate are ready.");
 
@@ -702,6 +711,16 @@ export default function App() {
       );
       setStatusMessage("Signing failed.");
     }
+  };
+
+  const downloadSignedPdf = () => {
+    if (!signedPdfBytes) return;
+    downloadBlob(
+      new Blob([copyBytesToArrayBuffer(signedPdfBytes)], {
+        type: "application/pdf",
+      }),
+      `${safeFilename(documentName, "signed")}.pdf`,
+    );
   };
 
   const downloadCertificate = () => {
@@ -779,11 +798,19 @@ export default function App() {
           </span>
           <button
             className="primary-button"
-            disabled={!canSign}
+            disabled={!canExport}
             onClick={exportSignedPdf}
           >
             <Download size={17} />
             Export signed PDF
+          </button>
+          <button
+            className="secondary-button"
+            disabled={!signedPdfBytes}
+            onClick={downloadSignedPdf}
+          >
+            <Download size={16} />
+            Download PDF
           </button>
         </div>
       </header>
@@ -911,8 +938,7 @@ export default function App() {
               value={signerName}
               onChange={(event) => {
                 setSignerName(event.target.value);
-                setSignedHash("");
-                setCertificate(null);
+                clearEvidence();
               }}
               placeholder="Your name"
             />
@@ -928,8 +954,7 @@ export default function App() {
                 className={signatureMode === "draw" ? "active" : ""}
                 onClick={() => {
                   setSignatureMode("draw");
-                  setSignedHash("");
-                  setCertificate(null);
+                  clearEvidence();
                 }}
               >
                 Draw
@@ -938,8 +963,7 @@ export default function App() {
                 className={signatureMode === "type" ? "active" : ""}
                 onClick={() => {
                   setSignatureMode("type");
-                  setSignedHash("");
-                  setCertificate(null);
+                  clearEvidence();
                 }}
               >
                 Type
@@ -970,8 +994,7 @@ export default function App() {
                   value={typedSignature}
                   onChange={(event) => {
                     setTypedSignature(event.target.value);
-                    setSignedHash("");
-                    setCertificate(null);
+                    clearEvidence();
                   }}
                   placeholder="Type your signature"
                 />
