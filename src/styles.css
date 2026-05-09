@@ -630,6 +630,18 @@ input:not([type]) {
   text-align: center;
 }
 
+.field-requirement {
+  margin-top: 12px;
+  padding: 9px 10px;
+  border: 1px solid rgba(161, 98, 7, 0.34);
+  border-radius: var(--radius-sm);
+  color: var(--amber);
+  background: rgba(254, 243, 199, 0.46);
+  font-size: 12px;
+  font-weight: 720;
+  line-height: 1.35;
+}
+
 .toggle-row {
   display: flex;
   gap: 8px;

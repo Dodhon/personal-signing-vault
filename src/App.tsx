@@ -54,10 +54,18 @@ type Certificate = {
   documentName: string;
   signerName: string;
   signedAt: string;
+  documentLoadedAt: string;
+  signingDate: string;
+  intentStatement: string;
   pageNumber: number;
   originalSha256: string;
   signedSha256: string;
   signatureMode: SignatureMode;
+  events: Array<{
+    type: string;
+    at: string;
+    detail: string;
+  }>;
   fields: Array<{
     id: string;
     type: FieldType;
@@ -102,11 +110,13 @@ const defaultPlacements: Record<FieldType, Placement> = {
   },
 };
 
-const today = new Intl.DateTimeFormat("en-US", {
-  month: "short",
-  day: "2-digit",
-  year: "numeric",
-}).format(new Date());
+function formatSigningDate(date = new Date()) {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "2-digit",
+    year: "numeric",
+  }).format(date);
+}
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
@@ -297,6 +307,7 @@ export default function App() {
 
   const [documentName, setDocumentName] = useState("");
   const [documentBytes, setDocumentBytes] = useState<Uint8Array | null>(null);
+  const [documentLoadedAt, setDocumentLoadedAt] = useState("");
   const [originalHash, setOriginalHash] = useState("");
   const [signedHash, setSignedHash] = useState("");
   const [signedPdfBytes, setSignedPdfBytes] = useState<Uint8Array | null>(null);
@@ -323,12 +334,18 @@ export default function App() {
       : hasDrawnSignature;
 
   const activeField = fields.find((field) => field.id === activeFieldId) ?? null;
+  const signatureFieldCount = fields.filter(
+    (field) => field.type === "signature",
+  ).length;
+  const hasSignatureField = signatureFieldCount > 0;
+  const removingOnlySignatureField =
+    activeField?.type === "signature" && signatureFieldCount === 1;
 
   const getFieldValue = useCallback(
-    (field: SigningField) => {
+    (field: SigningField, signingDate = formatSigningDate()) => {
       if (field.type === "signature") return signatureLabel;
       if (field.type === "printedName") return signerName.trim();
-      if (field.type === "date") return today;
+      if (field.type === "date") return signingDate;
       return field.value?.trim() ?? "";
     },
     [signatureLabel, signerName],
@@ -336,6 +353,7 @@ export default function App() {
 
   const fieldsReady =
     fields.length > 0 &&
+    hasSignatureField &&
     fields.every((field) => {
       if (field.type === "signature") return signatureReady;
       if (field.type === "text") return getFieldValue(field).length > 0;
@@ -345,6 +363,15 @@ export default function App() {
 
   const canSign = Boolean(documentBytes) && fieldsReady;
   const canExport = canSign && Boolean(pageMetrics);
+  const exportDisabledReason = !documentBytes
+    ? "Load a PDF first."
+    : !hasSignatureField
+      ? "Add a visible signature field before exporting."
+      : !signatureReady
+        ? "Add a typed or drawn signature before exporting."
+        : !pageMetrics
+          ? "Wait for the PDF preview to finish loading."
+          : "";
 
   const clearEvidence = useCallback(() => {
     setSignedHash("");
@@ -356,6 +383,7 @@ export default function App() {
     setErrorMessage("");
     setDocumentName(name);
     setDocumentBytes(bytes);
+    setDocumentLoadedAt(new Date().toISOString());
     setOriginalHash(await sha256Hex(bytes));
     setSignedHash("");
     setSignedPdfBytes(null);
@@ -527,6 +555,10 @@ export default function App() {
 
   const removeActiveField = () => {
     if (!activeField) return;
+    if (removingOnlySignatureField) {
+      setStatusMessage("Keep one visible signature field before exporting.");
+      return;
+    }
     const activeIndex = fields.findIndex((field) => field.id === activeField.id);
     const nextFields = fields.filter((field) => field.id !== activeField.id);
     setFields(nextFields);
@@ -583,7 +615,13 @@ export default function App() {
   };
 
   const exportSignedPdf = async () => {
-    if (!documentBytes || !pageMetrics || !canExport) return;
+    if (!documentBytes || !pageMetrics) return;
+    if (!hasSignatureField) {
+      setErrorMessage("Add a visible signature field before exporting.");
+      setStatusMessage("Signing blocked.");
+      return;
+    }
+    if (!canExport) return;
 
     setErrorMessage("");
     setStatusMessage("Signing PDF locally...");
@@ -592,6 +630,9 @@ export default function App() {
       const pdfDoc = await PDFDocument.load(documentBytes);
       const page = pdfDoc.getPages()[0];
       const { width: pdfWidth, height: pdfHeight } = page.getSize();
+      const signedAtDate = new Date();
+      const signedAt = signedAtDate.toISOString();
+      const signingDate = formatSigningDate(signedAtDate);
 
       const helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
       const helveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
@@ -620,7 +661,7 @@ export default function App() {
         const boxWidth = field.placement.width * pdfWidth;
         const boxHeight = field.placement.height * pdfHeight;
         const y = pdfHeight - field.placement.y * pdfHeight - boxHeight;
-        const value = getFieldValue(field);
+        const value = getFieldValue(field, signingDate);
 
         if (field.type === "signature") {
           if (signatureMode === "draw" && signatureImage) {
@@ -682,17 +723,32 @@ export default function App() {
 
       const signedBytes = new Uint8Array(await pdfDoc.save());
       const nextSignedHash = await sha256Hex(signedBytes);
-      const signedAt = new Date().toISOString();
+      const loadedAt = documentLoadedAt || signedAt;
       const nextCertificate: Certificate = {
         app: "Personal Signing Vault",
         version: "0.1.0",
         documentName,
         signerName: signerName.trim(),
         signedAt,
+        documentLoadedAt: loadedAt,
+        signingDate,
+        intentStatement: `${signerName.trim()} applied a ${signatureMode} signature to page 1 and exported the signed PDF locally.`,
         pageNumber: 1,
         originalSha256: originalHash,
         signedSha256: nextSignedHash,
         signatureMode,
+        events: [
+          {
+            type: "document_loaded",
+            at: loadedAt,
+            detail: `${documentName} loaded into the local browser session.`,
+          },
+          {
+            type: "signed_pdf_exported",
+            at: signedAt,
+            detail: `${certificateFields.length} visible field(s) flattened onto page 1.`,
+          },
+        ],
         fields: certificateFields,
       };
 
@@ -799,6 +855,7 @@ export default function App() {
           <button
             className="primary-button"
             disabled={!canExport}
+            title={canExport ? "Export signed PDF" : exportDisabledReason}
             onClick={exportSignedPdf}
           >
             <Download size={17} />
@@ -833,7 +890,7 @@ export default function App() {
         <section className="document-panel" aria-label="Document workspace">
           <div className="document-toolbar">
             <div>
-              <span className="section-label">Document preview</span>
+              <span className="section-label">Document preview - page 1 only</span>
               <strong>{documentName || "Waiting for PDF"}</strong>
             </div>
             <div className="toolbar-actions">
@@ -1060,6 +1117,12 @@ export default function App() {
               <div className="empty-fields">No fields placed</div>
             )}
 
+            {!hasSignatureField ? (
+              <div className="field-requirement">
+                A visible signature field is required before export.
+              </div>
+            ) : null}
+
             {activeField ? (
               <div className="field-editor">
                 <label className="field-label" htmlFor="field-label">
@@ -1088,7 +1151,16 @@ export default function App() {
                   </>
                 ) : null}
 
-                <button className="secondary-button danger full" onClick={removeActiveField}>
+                <button
+                  className="secondary-button danger full"
+                  disabled={removingOnlySignatureField}
+                  title={
+                    removingOnlySignatureField
+                      ? "Keep one visible signature field for a usable signed PDF."
+                      : "Remove selected field"
+                  }
+                  onClick={removeActiveField}
+                >
                   <Trash2 size={15} />
                   Remove selected
                 </button>
@@ -1135,7 +1207,7 @@ export default function App() {
         <span>{statusMessage}</span>
         {errorMessage ? <strong>{errorMessage}</strong> : null}
         <span className="statusbar-note">
-          Local-only prototype. No upload, no identity proofing.
+          Local-only MVP. Page 1 only; no upload, vault, or identity proofing.
         </span>
       </footer>
     </main>
