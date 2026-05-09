@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:e2e": "node tests/signing-flow.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",
@@ -19,6 +20,7 @@
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^6.0.1",
+    "playwright": "^1.59.1",
     "typescript": "^5.7.2",
     "vite": "^8.0.10"
   }
