@@ -1203,6 +1203,26 @@ export default function App() {
         </aside>
       </section>
 
+      <section className="search-summary" aria-label="Product summary">
+        <div>
+          <h2>Local PDF signing for simple documents</h2>
+          <p>
+            Personal Signing Vault signs the first page of a PDF in your
+            browser and exports a flattened PDF plus evidence certificate.
+          </p>
+        </div>
+        <dl>
+          <div>
+            <dt>Best fit</dt>
+            <dd>Waivers, acknowledgments, and simple one-signer PDFs.</dd>
+          </div>
+          <div>
+            <dt>Current limits</dt>
+            <dd>Page 1 only; no routing, identity proofing, or vault storage.</dd>
+          </div>
+        </dl>
+      </section>
+
       <footer className="statusbar">
         <span>{statusMessage}</span>
         {errorMessage ? <strong>{errorMessage}</strong> : null}

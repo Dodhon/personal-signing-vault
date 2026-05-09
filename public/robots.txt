@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://personal-signing-vault.pages.dev/sitemap.xml

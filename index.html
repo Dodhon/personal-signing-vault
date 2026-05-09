@@ -3,9 +3,64 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Personal Signing Vault</title>
+    <title>Personal Signing Vault | Local PDF Signing Tool</title>
+    <meta
+      name="description"
+      content="Sign the first page of a PDF in your browser, then download a flattened signed PDF and evidence certificate. Local-only MVP: no upload."
+    />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://personal-signing-vault.pages.dev/" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <meta name="theme-color" content="#0f766e" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Personal Signing Vault" />
+    <meta
+      property="og:title"
+      content="Personal Signing Vault | Local PDF Signing Tool"
+    />
+    <meta
+      property="og:description"
+      content="Sign a simple PDF locally in your browser and download a flattened signed PDF plus evidence certificate."
+    />
+    <meta property="og:url" content="https://personal-signing-vault.pages.dev/" />
+
+    <meta name="twitter:card" content="summary" />
+    <meta
+      name="twitter:title"
+      content="Personal Signing Vault | Local PDF Signing Tool"
+    />
+    <meta
+      name="twitter:description"
+      content="Browser-only PDF signing for simple first-page documents. No document upload in the current MVP."
+    />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "Personal Signing Vault",
+        "applicationCategory": "BusinessApplication",
+        "operatingSystem": "Web browser",
+        "url": "https://personal-signing-vault.pages.dev/",
+        "softwareVersion": "0.1.0",
+        "description": "A local-first browser tool for signing the first page of a PDF and exporting a flattened signed PDF plus evidence certificate.",
+        "browserRequirements": "Requires JavaScript and a modern browser.",
+        "featureList": [
+          "Local PDF import",
+          "Typed or drawn signature",
+          "First-page signing fields",
+          "Flattened PDF export",
+          "Evidence certificate JSON"
+        ]
+      }
+    </script>
   </head>
   <body>
+    <noscript>
+      Personal Signing Vault is a local-first browser tool for signing the first
+      page of a PDF and downloading a signed PDF plus evidence certificate.
+      JavaScript is required to run the signing workflow.
+    </noscript>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
